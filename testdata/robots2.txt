@@ -1,0 +1,4 @@
+User-agent: *
+disallow: /a
+disallow: /b/c
+disallow: /e

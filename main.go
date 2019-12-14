@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -23,6 +24,7 @@ var (
 type Uniq struct {
 	sync.Mutex
 	mp map[string]struct{}
+	w  io.Writer
 }
 
 func (obj *Uniq) printUniq(el string) {
@@ -35,13 +37,14 @@ func (obj *Uniq) printUniq(el string) {
 
 	obj.mp[el] = struct{}{}
 
-	fmt.Println(el)
+	fmt.Fprintln(obj.w, el)
 }
 
 type Worker struct {
 	wg   *sync.WaitGroup
 	rowC chan [2]string
 	um   *Uniq
+	cl   client
 }
 
 func (w Worker) Do() {
@@ -49,6 +52,10 @@ func (w Worker) Do() {
 		w.processRow(row)
 		w.wg.Done()
 	}
+}
+
+type client struct {
+	*http.Client
 }
 
 func main() {
@@ -59,7 +66,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	list := listSnapshots()
+	cl := client{http.DefaultClient}
+
+	list := listSnapshots(cl)
 	if len(list) == 0 {
 		log.Println("Not Found")
 		return
@@ -67,18 +76,17 @@ func main() {
 
 	log.Printf("Found %d files\n", len(list))
 
-	processSnapshots(list)
+	processSnapshots(list, cl)
 }
 
 func (w Worker) processRow(row [2]string) {
 	u := fmt.Sprintf(snapshotFormat, row[0], row[1])
 
-	resp, err := http.Get(u)
+	resp, err := w.cl.Get(u)
 	if err != nil {
 		log.Printf("WARN: fetch snapshot for %s error: %s", row, err)
 		return
 	}
-
 	defer resp.Body.Close()
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -97,11 +105,12 @@ func (w Worker) processRow(row [2]string) {
 	}
 }
 
-func processSnapshots(list [][2]string) {
+func processSnapshots(list [][2]string, cl client) {
 	wg := &sync.WaitGroup{}
 	rowC := make(chan [2]string, *flagProcs)
 	uniq := &Uniq{
 		mp: make(map[string]struct{}),
+		w:  os.Stdout,
 	}
 
 	for i := 0; i < *flagProcs; i++ {
@@ -109,6 +118,7 @@ func processSnapshots(list [][2]string) {
 			wg:   wg,
 			rowC: rowC,
 			um:   uniq,
+			cl:   cl,
 		}.Do()
 	}
 
@@ -122,10 +132,10 @@ func processSnapshots(list [][2]string) {
 	wg.Wait()
 }
 
-func listSnapshots() [][2]string {
+func listSnapshots(cl client) [][2]string {
 	u := fmt.Sprintf(listFormat, *flagDomain)
 
-	resp, err := http.Get(u)
+	resp, err := cl.Get(u)
 	if err != nil {
 		log.Fatal(err)
 	}
