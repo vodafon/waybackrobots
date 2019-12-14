@@ -1,0 +1,8 @@
+User-agent: *
+disallow: /a
+disallow: /b/c
+# asdl
+# disallow: /eeee
+disallow /nnnnn
+disallow:
+disallow: /e
