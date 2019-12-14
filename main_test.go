@@ -9,10 +9,8 @@ import (
 	"testing"
 )
 
-// RoundTripFunc .
 type roundTripFunc func(req *http.Request) *http.Response
 
-// RoundTrip .
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req), nil
 }
@@ -102,7 +100,6 @@ func newTestClient(data []byte) *http.Client {
 
 func newRoundTrip(data []byte) roundTripFunc {
 	return func(req *http.Request) *http.Response {
-		// Test request parameters
 		return &http.Response{
 			StatusCode: 200,
 			// Send response to be tested
