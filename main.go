@@ -2,15 +2,18 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -66,7 +69,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	cl := client{http.DefaultClient}
+	cl := client{&http.Client{
+		Timeout: 10 * time.Second,
+	}}
 
 	list := listSnapshots(cl)
 	if len(list) == 0 {
@@ -137,16 +142,24 @@ func listSnapshots(cl client) [][2]string {
 
 	resp, err := cl.Get(u)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("GET %q error: %v", u, err)
 	}
 
 	defer resp.Body.Close()
 
 	res := [][2]string{}
-
-	err = json.NewDecoder(resp.Body).Decode(&res)
+	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Read body from %q error: %v", u, err)
+	}
+
+	if resp.StatusCode == 403 && bytes.Contains(data, []byte("AdministrativeAccessControlException: Blocked Site Error")) {
+		log.Fatal("This domain has been manually excluded from the Wayback Machine")
+	}
+
+	err = json.Unmarshal(data, &res)
+	if err != nil {
+		log.Fatalf("%q: JSON decode for %q error: %v", u, data, err)
 	}
 
 	if len(res) < 2 {
