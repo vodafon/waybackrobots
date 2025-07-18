@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -182,7 +181,7 @@ func listSnapshots(cl client) [][2]string {
 	defer resp.Body.Close()
 
 	res := [][2]string{}
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Fatalf("[List] Read body from %q error: %v", u, err)
 	}
