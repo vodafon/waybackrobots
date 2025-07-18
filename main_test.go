@@ -24,7 +24,74 @@ func TestList(t *testing.T) {
 		{"./testdata/list0.json", 0},
 	}
 	for i, tt := range tests {
-		cl := client{newTestClient(readFile(tt.p))}
+		cl := client{
+			httpClient: newTestClient(readFile(tt.p)),
+			sdate:      mustParseStartDate(""),
+			edate:      mustParseEndDate(""),
+		}
+
+		list := listSnapshots(cl)
+		if len(list) != tt.l {
+			t.Errorf("%d: Incorrect result. Expected %q, got %q\n", i, tt.l, len(list))
+		}
+		if tt.l == 0 {
+			continue
+		}
+		exp := [][2]string{
+			{"20070706061934", "http://www.example.com/robots.txt"},
+			{"20070702231826", "http://example.com/robots.txt"},
+		}
+		if fmt.Sprint(exp) != fmt.Sprint(list) {
+			t.Errorf("%d: Incorrect result. Expected %q, got %q\n", i, exp, list)
+		}
+	}
+}
+
+func TestStartDateFilter(t *testing.T) {
+	tests := []struct {
+		p string
+		l int
+	}{
+		{"./testdata/list2.json", 1},
+		{"./testdata/list0.json", 0},
+	}
+	for i, tt := range tests {
+		cl := client{
+			httpClient: newTestClient(readFile(tt.p)),
+			sdate:      mustParseStartDate("2007-07-04"),
+			edate:      mustParseEndDate(""),
+		}
+
+		list := listSnapshots(cl)
+		if len(list) != tt.l {
+			t.Errorf("%d: Incorrect result. Expected %q, got %q\n", i, tt.l, len(list))
+		}
+		if tt.l == 0 {
+			continue
+		}
+		exp := [][2]string{
+			{"20070706061934", "http://www.example.com/robots.txt"},
+		}
+		if fmt.Sprint(exp) != fmt.Sprint(list) {
+			t.Errorf("%d: Incorrect result. Expected %q, got %q\n", i, exp, list)
+		}
+	}
+}
+
+func TestEndDateFilter(t *testing.T) {
+	tests := []struct {
+		p string
+		l int
+	}{
+		{"./testdata/list2.json", 1},
+		{"./testdata/list0.json", 0},
+	}
+	for i, tt := range tests {
+		cl := client{
+			httpClient: newTestClient(readFile(tt.p)),
+			sdate:      mustParseStartDate(""),
+			edate:      mustParseEndDate("2007-07-05"),
+		}
 
 		list := listSnapshots(cl)
 		if len(list) != tt.l {
@@ -35,7 +102,6 @@ func TestList(t *testing.T) {
 		}
 		exp := [][2]string{
 			{"20070702231826", "http://example.com/robots.txt"},
-			{"20070706061934", "http://www.example.com/robots.txt"},
 		}
 		if fmt.Sprint(exp) != fmt.Sprint(list) {
 			t.Errorf("%d: Incorrect result. Expected %q, got %q\n", i, exp, list)
@@ -54,7 +120,11 @@ func TestWorkerDoDisallowed(t *testing.T) {
 		{"Comments and missing colon", "./testdata/robots2.txt", "/a\n/b/c\n/e\n"},
 	}
 	for _, tt := range tests {
-		cl := client{newTestClient(readFile(tt.p))}
+		cl := client{
+			httpClient: newTestClient(readFile(tt.p)),
+			sdate:      mustParseStartDate(""),
+			edate:      mustParseEndDate(""),
+		}
 
 		wg := &sync.WaitGroup{}
 		rowC := make(chan [2]string, 1)
@@ -94,7 +164,11 @@ func TestWorkerDoRaw(t *testing.T) {
 	}
 	for _, tt := range tests {
 		content := readFile(tt.p)
-		cl := client{newTestClient(content)}
+		cl := client{
+			httpClient: newTestClient(content),
+			sdate:      mustParseStartDate(""),
+			edate:      mustParseEndDate(""),
+		}
 
 		wg := &sync.WaitGroup{}
 		rowC := make(chan [2]string, 1)

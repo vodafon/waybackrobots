@@ -10,15 +10,19 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
 var (
-	flagDomain = flag.String("d", "", "target domain")
-	flagProcs  = flag.Int("c", 4, "concurrency")
-	flagRaw    = flag.Bool("raw", false, "raw lines, not only disallowed")
+	flagDomain    = flag.String("d", "", "target domain")
+	flagStartDate = flag.String("start_date", "", "Start date in format 'YYYY-MM-DD'. Ex. '2025-01-24'. If empty equal to '1970-01-01'")
+	flagEndDate   = flag.String("end_date", "", "End date in format 'YYYY-MM-DD'. Ex. '2025-01-24'. If empty equal to current date")
+	flagProcs     = flag.Int("c", 1, "concurrency")
+	flagRaw       = flag.Bool("raw", false, "raw lines, not only disallowed")
+	flagTimeout   = flag.Duration("timeout", 30*time.Second, "timeout for HTTP requests")
 
 	listFormat     = "https://web.archive.org/cdx/search/cdx?url=%s/robots.txt&output=json&fl=timestamp,original&filter=statuscode:200&collapse=digest"
 	snapshotFormat = "https://web.archive.org/web/%sif_/%s"
@@ -59,7 +63,9 @@ func (w Worker) Do() {
 }
 
 type client struct {
-	*http.Client
+	httpClient *http.Client
+	sdate      time.Time
+	edate      time.Time
 }
 
 func main() {
@@ -69,10 +75,18 @@ func main() {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
-
-	cl := client{&http.Client{
-		Timeout: 30 * time.Second,
-	}}
+	httpclient := &http.Client{
+		Timeout: *flagTimeout, // set 10s timeout
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Returning this error stops following redirects
+			return http.ErrUseLastResponse
+		},
+	}
+	cl := client{
+		httpClient: httpclient,
+		sdate:      mustParseStartDate(*flagStartDate),
+		edate:      mustParseEndDate(*flagEndDate),
+	}
 
 	list := listSnapshots(cl)
 	if len(list) == 0 {
@@ -85,10 +99,32 @@ func main() {
 	processSnapshots(list, cl, *flagRaw)
 }
 
+func mustParseStartDate(sd string) time.Time {
+	if sd == "" {
+		sd = "1970-01-01"
+	}
+	startDate, err := time.Parse("2006-01-02", sd)
+	if err != nil {
+		log.Fatalf("Invalid '-start_date' argument")
+	}
+	return startDate
+}
+
+func mustParseEndDate(sd string) time.Time {
+	if sd == "" {
+		return time.Now()
+	}
+	endDate, err := time.Parse("2006-01-02", sd)
+	if err != nil {
+		log.Fatalf("Invalid '-end_date' argument")
+	}
+	return endDate
+}
+
 func (w Worker) processRow(row [2]string) {
 	u := fmt.Sprintf(snapshotFormat, row[0], row[1])
 
-	resp, err := w.cl.Get(u)
+	resp, err := w.cl.httpClient.Get(u)
 	if err != nil {
 		log.Printf("[Process] WARN: fetch snapshot for %s error: %s", row, err)
 		return
@@ -173,7 +209,7 @@ func processSnapshots(list [][2]string, cl client, rawLines bool) {
 func listSnapshots(cl client) [][2]string {
 	u := fmt.Sprintf(listFormat, *flagDomain)
 
-	resp, err := cl.Get(u)
+	resp, err := cl.httpClient.Get(u)
 	if err != nil {
 		log.Fatalf("[List] GET %q error: %v", u, err)
 	}
@@ -181,6 +217,7 @@ func listSnapshots(cl client) [][2]string {
 	defer resp.Body.Close()
 
 	res := [][2]string{}
+	tmp := [][2]string{}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Fatalf("[List] Read body from %q error: %v", u, err)
@@ -190,15 +227,32 @@ func listSnapshots(cl client) [][2]string {
 		log.Fatal("This domain has been manually excluded from the Wayback Machine")
 	}
 
-	err = json.Unmarshal(data, &res)
+	err = json.Unmarshal(data, &tmp)
 	if err != nil {
 		log.Fatalf("[List] %q: JSON decode for %q error: %v", u, data, err)
 	}
 
-	if len(res) < 2 {
+	if len(tmp) < 2 {
 		return [][2]string{}
 	}
 
 	// without header row
-	return res[1:]
+	for _, el := range tmp[1:] {
+		ts := el[0]
+		t, err := time.Parse("20060102150405", ts) // Wayback format
+		if err != nil {
+			continue
+		}
+		if t.Before(cl.sdate) || t.After(cl.edate) {
+			continue
+		}
+		res = append(res, el)
+	}
+
+	// Sort descending
+	sort.Slice(res, func(i, j int) bool {
+		return res[i][0] > res[j][0]
+	})
+
+	return res
 }

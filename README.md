@@ -28,3 +28,11 @@ And you can use the `-raw` flag to print the robots files as-is.
 ```
 waybackrobots -d target.com -raw
 ```
+
+Filter by dates
+
+```
+waybackrobots -d target.com -start_date "2023-01-01"
+waybackrobots -d target.com -end_date "2025-01-01"
+waybackrobots -d target.com -start_date "2023-01-01" -end_date "2025-01-01"
+```
